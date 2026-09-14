@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>My Car</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 360px; margin: 3rem auto; }
+  h1 { font-size: 1.2rem; }
+  .bar { height: 24px; background: #eee; border-radius: 12px; overflow: hidden; margin: 0.5rem 0; }
+  .fill { height: 100%; background: #2e7d32; transition: width 0.3s; }
+  .row { display: flex; justify-content: space-between; align-items: center; margin: 1rem 0; }
+  button { padding: 0.5rem 1rem; font-size: 1rem; cursor: pointer; }
+  input[type=time] { font-size: 1rem; padding: 0.3rem; }
+  .badge { padding: 0.2rem 0.6rem; border-radius: 8px; font-size: 0.85rem; }
+  .charging { background: #c8e6c9; color: #1b5e20; }
+  .idle { background: #eee; color: #555; }
+</style>
+</head>
+<body>
+  <h1>My Car Battery</h1>
+
+  <div class="bar"><div class="fill" id="fill" style="width:0%"></div></div>
+  <div class="row">
+    <span id="level">--%</span>
+    <span id="status" class="badge idle">Idle</span>
+  </div>
+
+  <div class="row">
+    <button id="startBtn">Start Charging</button>
+    <button id="stopBtn">Stop Charging</button>
+  </div>
+
+  <div class="row">
+    <input type="time" id="scheduleInput">
+    <button id="scheduleBtn">Set Schedule</button>
+  </div>
+
+  <p><small id="updated"></small></p>
+
+<script>
+  const API = "http://localhost:7071/api";
+
+  async function refresh() {
+    const res = await fetch(`${API}/battery`);
+    const data = await res.json();
+
+    const level = data.batteryLevel ?? 0;
+    document.getElementById("fill").style.width = `${level}%`;
+    document.getElementById("level").textContent = `${level}%`;
+
+    const statusEl = document.getElementById("status");
+    statusEl.textContent = data.isCharging ? "Charging" : "Idle";
+    statusEl.className = "badge " + (data.isCharging ? "charging" : "idle");
+
+    document.getElementById("scheduleInput").value = data.schedule ?? "";
+    document.getElementById("updated").textContent = data.lastUpdated
+      ? `Last updated: ${new Date(data.lastUpdated).toLocaleTimeString()}`
+      : "No data yet";
+  }
+
+  document.getElementById("startBtn").onclick = async () => {
+    await fetch(`${API}/charging`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ charging: true })
+    });
+    refresh();
+  };
+
+  document.getElementById("stopBtn").onclick = async () => {
+    await fetch(`${API}/charging`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ charging: false })
+    });
+    refresh();
+  };
+
+  document.getElementById("scheduleBtn").onclick = async () => {
+    const time = document.getElementById("scheduleInput").value;
+    if (!time) return;
+    await fetch(`${API}/schedule`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ time })
+    });
+    refresh();
+  };
+
+  refresh();
+  setInterval(refresh, 5000);
+</script>
+</body>
+</html>
