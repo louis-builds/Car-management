@@ -2,44 +2,228 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>My Car</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 360px; margin: 3rem auto; }
-  h1 { font-size: 1.2rem; }
-  .bar { height: 24px; background: #eee; border-radius: 12px; overflow: hidden; margin: 0.5rem 0; }
-  .fill { height: 100%; background: #2e7d32; transition: width 0.3s; }
-  .row { display: flex; justify-content: space-between; align-items: center; margin: 1rem 0; }
-  button { padding: 0.5rem 1rem; font-size: 1rem; cursor: pointer; }
-  input[type=time] { font-size: 1rem; padding: 0.3rem; }
-  .badge { padding: 0.2rem 0.6rem; border-radius: 8px; font-size: 0.85rem; }
-  .charging { background: #c8e6c9; color: #1b5e20; }
-  .idle { background: #eee; color: #555; }
-  .offline { background: #e0e0e0; color: #757575; }
-  .alert { background: #fdecea; color: #611a15; border: 1px solid #f5c6cb; border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom: 1rem; font-size: 0.9rem; }
+  :root {
+    --green: #2e7d32;
+    --green-light: #c8e6c9;
+    --green-dark: #1b5e20;
+    --amber-bg: #fff4e5;
+    --amber-border: #ffd699;
+    --amber-text: #7a4a00;
+    --red-bg: #fdecea;
+    --red-border: #f5c6cb;
+    --red-text: #611a15;
+    --gray-bg: #eef0f2;
+    --gray-text: #667085;
+    --ink: #1c2430;
+    --card: #ffffff;
+    --page: #f4f6f9;
+    --border: #e4e7eb;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    background: var(--page);
+    color: var(--ink);
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 3rem 1rem;
+  }
+
+  .card {
+    width: 100%;
+    max-width: 380px;
+    background: var(--card);
+    border-radius: 20px;
+    box-shadow: 0 1px 3px rgba(20, 30, 50, 0.06), 0 8px 24px rgba(20, 30, 50, 0.08);
+    padding: 1.75rem;
+  }
+
+  h1 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin: 0 0 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  h1 .emoji { font-size: 1.3rem; }
+
+  .alert {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+    background: var(--red-bg);
+    color: var(--red-text);
+    border: 1px solid var(--red-border);
+    border-radius: 12px;
+    padding: 0.7rem 0.85rem;
+    margin-bottom: 1.1rem;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    animation: slide-in 0.25s ease-out;
+  }
+
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .level-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+  }
+
+  .level-number {
+    font-size: 2.1rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  .level-number small { font-size: 1.1rem; font-weight: 600; color: var(--gray-text); }
+
+  .bar {
+    height: 16px;
+    background: var(--gray-bg);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-bottom: 1.25rem;
+    position: relative;
+  }
+
+  .fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #43a047, var(--green));
+    transition: width 0.5s ease;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .fill.low { background: linear-gradient(90deg, #e57373, #d32f2f); }
+  .fill.mid { background: linear-gradient(90deg, #ffb74d, #f57c00); }
+
+  .fill.charging::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(120deg, transparent, rgba(255,255,255,0.45), transparent);
+    animation: shine 1.6s linear infinite;
+  }
+
+  @keyframes shine {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(100%); }
+  }
+
+  .badge {
+    padding: 0.25rem 0.7rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .badge::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .charging { background: var(--green-light); color: var(--green-dark); }
+  .idle { background: var(--gray-bg); color: var(--gray-text); }
+  .offline { background: #ececec; color: #8a8a8a; }
+
+  .divider { border: none; border-top: 1px solid var(--border); margin: 1.25rem 0; }
+
+  .row { display: flex; gap: 0.6rem; margin-bottom: 0.75rem; }
+
+  button {
+    flex: 1;
+    padding: 0.65rem 0.8rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: transform 0.05s ease, filter 0.15s ease;
+  }
+
+  button:active { transform: scale(0.98); }
+
+  #startBtn { background: var(--green); color: white; }
+  #startBtn:hover { filter: brightness(1.08); }
+
+  #stopBtn { background: var(--card); color: var(--ink); border-color: var(--border); }
+  #stopBtn:hover { background: var(--gray-bg); }
+
+  .schedule-row { display: flex; gap: 0.6rem; align-items: center; }
+
+  input[type=time] {
+    flex: 1;
+    font-size: 0.9rem;
+    padding: 0.55rem 0.6rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    color: var(--ink);
+    background: var(--page);
+  }
+
+  #scheduleBtn {
+    flex: none;
+    background: var(--ink);
+    color: white;
+  }
+  #scheduleBtn:hover { filter: brightness(1.15); }
+
+  .updated {
+    margin-top: 1.1rem;
+    font-size: 0.75rem;
+    color: var(--gray-text);
+    text-align: center;
+  }
 </style>
 </head>
 <body>
-  <h1>My Car Battery</h1>
+  <div class="card">
+    <h1><span class="emoji">🔋</span>My Car Battery</h1>
 
-  <div id="alertBanner" class="alert" hidden></div>
+    <div id="alertBanner" class="alert" hidden></div>
 
-  <div class="bar"><div class="fill" id="fill" style="width:0%"></div></div>
-  <div class="row">
-    <span id="level">--%</span>
-    <span id="status" class="badge idle">Idle</span>
+    <div class="level-row">
+      <span class="level-number" id="level">--<small>%</small></span>
+      <span id="status" class="badge idle">Idle</span>
+    </div>
+    <div class="bar"><div class="fill" id="fill" style="width:0%"></div></div>
+
+    <hr class="divider">
+
+    <div class="row">
+      <button id="startBtn">▶ Start Charging</button>
+      <button id="stopBtn">⏸ Stop Charging</button>
+    </div>
+
+    <div class="schedule-row">
+      <input type="time" id="scheduleInput">
+      <button id="scheduleBtn">Set Schedule</button>
+    </div>
+
+    <p class="updated" id="updated"></p>
   </div>
-
-  <div class="row">
-    <button id="startBtn">Start Charging</button>
-    <button id="stopBtn">Stop Charging</button>
-  </div>
-
-  <div class="row">
-    <input type="time" id="scheduleInput">
-    <button id="scheduleBtn">Set Schedule</button>
-  </div>
-
-  <p><small id="updated"></small></p>
 
 <script>
   const API = "https://car-battery-func-cffueff0bjaphuaq.newzealandnorth-01.azurewebsites.net/api";
@@ -49,8 +233,12 @@
     const data = await res.json();
 
     const level = data.batteryLevel ?? 0;
-    document.getElementById("fill").style.width = `${level}%`;
-    document.getElementById("level").textContent = `${level}%`;
+    const fillEl = document.getElementById("fill");
+    fillEl.style.width = `${level}%`;
+    fillEl.classList.toggle("low", level < 20);
+    fillEl.classList.toggle("mid", level >= 20 && level < 50);
+    fillEl.classList.toggle("charging", !!data.isCharging);
+    document.getElementById("level").innerHTML = `${level}<small>%</small>`;
 
     const isOffline = data.alert === "unexpected_disconnect_while_charging";
     const statusEl = document.getElementById("status");
@@ -64,13 +252,13 @@
 
     document.getElementById("scheduleInput").value = data.schedule ?? "";
     document.getElementById("updated").textContent = data.lastUpdated
-      ? `Last updated: ${new Date(data.lastUpdated).toLocaleTimeString()}`
+      ? `Last updated ${new Date(data.lastUpdated).toLocaleTimeString()}`
       : "No data yet";
 
     const banner = document.getElementById("alertBanner");
     if (data.alert === "unexpected_disconnect_while_charging") {
       const at = data.alertAt ? new Date(data.alertAt).toLocaleTimeString() : "";
-      banner.textContent = `⚠️ Car disconnected unexpectedly while charging${at ? ` at ${at}` : ""}.`;
+      banner.innerHTML = `<span>⚠️</span><span>Car disconnected unexpectedly while charging${at ? ` at ${at}` : ""}.</span>`;
       banner.hidden = false;
     } else {
       banner.hidden = true;
