@@ -14,10 +14,14 @@
   .badge { padding: 0.2rem 0.6rem; border-radius: 8px; font-size: 0.85rem; }
   .charging { background: #c8e6c9; color: #1b5e20; }
   .idle { background: #eee; color: #555; }
+  .offline { background: #e0e0e0; color: #757575; }
+  .alert { background: #fdecea; color: #611a15; border: 1px solid #f5c6cb; border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom: 1rem; font-size: 0.9rem; }
 </style>
 </head>
 <body>
   <h1>My Car Battery</h1>
+
+  <div id="alertBanner" class="alert" hidden></div>
 
   <div class="bar"><div class="fill" id="fill" style="width:0%"></div></div>
   <div class="row">
@@ -38,7 +42,7 @@
   <p><small id="updated"></small></p>
 
 <script>
-  const API = "http://localhost:7071/api";
+  const API = "https://car-battery-func-cffueff0bjaphuaq.newzealandnorth-01.azurewebsites.net/api";
 
   async function refresh() {
     const res = await fetch(`${API}/battery`);
@@ -48,14 +52,29 @@
     document.getElementById("fill").style.width = `${level}%`;
     document.getElementById("level").textContent = `${level}%`;
 
+    const isOffline = data.alert === "unexpected_disconnect_while_charging";
     const statusEl = document.getElementById("status");
-    statusEl.textContent = data.isCharging ? "Charging" : "Idle";
-    statusEl.className = "badge " + (data.isCharging ? "charging" : "idle");
+    if (isOffline) {
+      statusEl.textContent = "Offline";
+      statusEl.className = "badge offline";
+    } else {
+      statusEl.textContent = data.isCharging ? "Charging" : "Idle";
+      statusEl.className = "badge " + (data.isCharging ? "charging" : "idle");
+    }
 
     document.getElementById("scheduleInput").value = data.schedule ?? "";
     document.getElementById("updated").textContent = data.lastUpdated
       ? `Last updated: ${new Date(data.lastUpdated).toLocaleTimeString()}`
       : "No data yet";
+
+    const banner = document.getElementById("alertBanner");
+    if (data.alert === "unexpected_disconnect_while_charging") {
+      const at = data.alertAt ? new Date(data.alertAt).toLocaleTimeString() : "";
+      banner.textContent = `⚠️ Car disconnected unexpectedly while charging${at ? ` at ${at}` : ""}.`;
+      banner.hidden = false;
+    } else {
+      banner.hidden = true;
+    }
   }
 
   document.getElementById("startBtn").onclick = async () => {

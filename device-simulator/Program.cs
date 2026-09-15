@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using DotNetEnv;
@@ -50,6 +51,15 @@ namespace CarBattery.DeviceSimulator
             }
 
             _deviceClient = DeviceClient.CreateFromConnectionString(connectionString, TransportType.Mqtt);
+
+            // IoT Hub's Device Connection State events (DeviceConnected /
+            // DeviceDisconnected, used by the Event Grid subscription) don't
+            // start being tracked for .NET-SDK devices until the device has
+            // sent at least one device-to-cloud message. We otherwise only
+            // talk over the Twin, so send one empty message here purely to
+            // satisfy that prerequisite - not the start of a telemetry
+            // pipeline.
+            await _deviceClient.SendEventAsync(new Message(Encoding.UTF8.GetBytes("{}")));
 
             // Pick up whatever desired properties are already sitting in the twin
             // (e.g. someone set a schedule before this device ever connected),

@@ -1,54 +1,30 @@
 using System.Net;
-using Microsoft.Azure.Devices;
-using Microsoft.Azure.Devices.Common.Exceptions;
 using Microsoft.Azure.Devices.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
+using static CarBattery.Functions.IotHubClient;
 
 namespace CarBattery.Functions;
 
 public class BatteryFunctions
 {
-    private static readonly RegistryManager _registryManager = RegistryManager.CreateFromConnectionString(
-        Environment.GetEnvironmentVariable("IOTHUB_SERVICE_CONNECTION_STRING")
-        ?? throw new InvalidOperationException("IOTHUB_SERVICE_CONNECTION_STRING is not set."));
-
-    private static readonly string _deviceId =
-        Environment.GetEnvironmentVariable("IOTHUB_DEVICE_ID")
-        ?? throw new InvalidOperationException("IOTHUB_DEVICE_ID is not set.");
-
-    // ponytail: fixed 3 attempts / exponential backoff, no Polly dependency
-    // for 3 call sites. Revisit with a proper policy library if more
-    // endpoints need this or the backoff needs to be configurable.
-    private static async Task<T> WithThrottleRetryAsync<T>(Func<Task<T>> operation)
-    {
-        for (int attempt = 1; ; attempt++)
-        {
-            try
-            {
-                return await operation();
-            }
-            catch (ThrottlingException) when (attempt < 3)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)));
-            }
-        }
-    }
-
     [Function("GetBattery")]
     public async Task<HttpResponseData> GetBattery(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "battery")] HttpRequestData req)
     {
-        Twin twin = await WithThrottleRetryAsync(() => _registryManager.GetTwinAsync(_deviceId));
+        Twin twin = await WithThrottleRetryAsync(() => RegistryManager.GetTwinAsync(DeviceId));
         var reported = twin.Properties.Reported;
         var desired = twin.Properties.Desired;
+        var tags = twin.Tags;
 
         var result = new
         {
             batteryLevel = reported.Contains("batteryLevel") ? (double)reported["batteryLevel"] : (double?)null,
             isCharging = reported.Contains("isCharging") ? (bool)reported["isCharging"] : (bool?)null,
             lastUpdated = reported.Contains("lastUpdated") ? (DateTime)reported["lastUpdated"] : (DateTime?)null,
-            schedule = desired.Contains("schedule") ? (string)desired["schedule"] : null
+            schedule = desired.Contains("schedule") ? (string)desired["schedule"] : null,
+            alert = tags.Contains("alert") ? (string)tags["alert"] : null,
+            alertAt = tags.Contains("alertAt") ? (DateTime?)tags["alertAt"] : null
         };
 
         var response = req.CreateResponse(HttpStatusCode.OK);
@@ -68,7 +44,7 @@ public class BatteryFunctions
 
         var patch = new Twin();
         patch.Properties.Desired["targetCharging"] = body.Charging;
-        await WithThrottleRetryAsync(() => _registryManager.UpdateTwinAsync(_deviceId, patch, "*"));
+        await WithThrottleRetryAsync(() => RegistryManager.UpdateTwinAsync(DeviceId, patch, "*"));
 
         return req.CreateResponse(HttpStatusCode.NoContent);
     }
@@ -85,7 +61,7 @@ public class BatteryFunctions
 
         var patch = new Twin();
         patch.Properties.Desired["schedule"] = body.Time;
-        await WithThrottleRetryAsync(() => _registryManager.UpdateTwinAsync(_deviceId, patch, "*"));
+        await WithThrottleRetryAsync(() => RegistryManager.UpdateTwinAsync(DeviceId, patch, "*"));
 
         return req.CreateResponse(HttpStatusCode.NoContent);
     }
