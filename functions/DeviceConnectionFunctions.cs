@@ -3,6 +3,7 @@ using Microsoft.Azure.Devices.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using static CarBattery.Functions.IotHubClient;
+using static CarBattery.Functions.RetryPolicy;
 
 namespace CarBattery.Functions;
 

@@ -137,18 +137,15 @@ namespace CarBattery.DeviceSimulator
         {
             lock (_stateLock)
             {
-                if (_state == State.Charging)
+                bool wasCharging = _state == State.Charging;
+                var (nextLevel, stillCharging) = BatterySimulation.ApplyTick(
+                    _batteryLevel, wasCharging, ChargeRatePerTick, DrainRatePerTick);
+
+                _batteryLevel = nextLevel;
+                if (wasCharging && !stillCharging)
                 {
-                    _batteryLevel = Math.Min(100.0, _batteryLevel + ChargeRatePerTick);
-                    if (_batteryLevel >= 100.0)
-                    {
-                        _state = State.Idle; // overcharge protection, like a real car
-                        Console.WriteLine("Battery reached 100% - charging stopped automatically.");
-                    }
-                }
-                else
-                {
-                    _batteryLevel = Math.Max(0.0, _batteryLevel - DrainRatePerTick);
+                    _state = State.Idle; // overcharge protection, like a real car
+                    Console.WriteLine("Battery reached 100% - charging stopped automatically.");
                 }
             }
         }
@@ -157,18 +154,13 @@ namespace CarBattery.DeviceSimulator
         {
             lock (_stateLock)
             {
-                if (_schedule == null || _state == State.Charging) return;
-                if (!TimeSpan.TryParse(_schedule, out var scheduledTime)) return;
+                if (_state == State.Charging) return; // already charging, nothing to check
 
                 var now = DateTime.Now;
-                var today = DateOnly.FromDateTime(now);
-                bool alreadyFiredToday = _scheduleFiredOn == today;
-                bool withinTickWindow = Math.Abs((now.TimeOfDay - scheduledTime).TotalSeconds) < TickInterval.TotalSeconds;
-
-                if (withinTickWindow && !alreadyFiredToday)
+                if (BatterySimulation.ShouldFireSchedule(_schedule, now, _scheduleFiredOn, TickInterval))
                 {
                     _state = State.Charging;
-                    _scheduleFiredOn = today;
+                    _scheduleFiredOn = DateOnly.FromDateTime(now);
                     Console.WriteLine($">>> Schedule {_schedule} fired - charging started.");
                 }
             }
