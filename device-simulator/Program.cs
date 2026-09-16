@@ -28,14 +28,15 @@ namespace CarBattery.DeviceSimulator
         private static readonly object _stateLock = new();
 
         // How fast the simulation moves / how chatty it is. Tune for a faster demo.
-        private const double ChargeRatePerTick = 2.0;  // % gained per tick while charging
+        private const double ChargeRatePerTick = 1.0;  // % gained per tick while charging
         private const double DrainRatePerTick = 0.3;   // % lost per tick while idle
-        private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(3);
         private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(30);
 
         private static DeviceClient? _deviceClient;
         private static DateTime _lastReportedAt = DateTime.MinValue;
         private static State _lastReportedState = State.Idle;
+        private static double _lastReportedBatteryLevel = double.NaN;
 
         private static async Task Main(string[] args)
         {
@@ -178,19 +179,24 @@ namespace CarBattery.DeviceSimulator
                 battery = _batteryLevel;
             }
 
-            bool changed = state != _lastReportedState;
+            double roundedBattery = Math.Round(battery, 1);
+
+            
+            bool stateChanged = state != _lastReportedState;
+            bool batteryChanged = roundedBattery != _lastReportedBatteryLevel;
             bool heartbeatDue = DateTime.UtcNow - _lastReportedAt >= HeartbeatInterval;
-            if (!force && !changed && !heartbeatDue) return;
+            if (!force && !stateChanged && !batteryChanged && !heartbeatDue) return;
 
             var reported = new TwinCollection
             {
-                ["batteryLevel"] = Math.Round(battery, 1),
+                ["batteryLevel"] = roundedBattery,
                 ["isCharging"] = state == State.Charging,
                 ["lastUpdated"] = DateTime.UtcNow
             };
 
             await _deviceClient!.UpdateReportedPropertiesAsync(reported);
             _lastReportedState = state;
+            _lastReportedBatteryLevel = roundedBattery;
             _lastReportedAt = DateTime.UtcNow;
             Console.WriteLine($"[reported] battery={battery:F1}% state={state}");
         }

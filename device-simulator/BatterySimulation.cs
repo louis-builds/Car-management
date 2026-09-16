@@ -9,7 +9,7 @@ public static class BatterySimulation
     {
         if (isCharging)
         {
-            double next = Math.Min(101.0, batteryLevel + chargeRatePerTick);
+            double next = Math.Min(100.0, batteryLevel + chargeRatePerTick);
             bool stillCharging = next < 100.0; // overcharge protection: auto-stop at 100%
             return (next, stillCharging);
         }

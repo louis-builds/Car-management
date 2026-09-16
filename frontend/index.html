@@ -57,6 +57,8 @@
 
   h1 .emoji { font-size: 1.3rem; }
 
+  .alert[hidden] { display: none; }
+
   .alert {
     display: flex;
     gap: 0.5rem;
@@ -165,11 +167,25 @@
 
   button:active { transform: scale(0.98); }
 
-  #startBtn { background: var(--green); color: white; }
-  #startBtn:hover { filter: brightness(1.08); }
+  #toggleBtn.action-start { background: var(--green); color: white; }
+  #toggleBtn.action-start:hover { filter: brightness(1.08); }
 
-  #stopBtn { background: var(--card); color: var(--ink); border-color: var(--border); }
-  #stopBtn:hover { background: var(--gray-bg); }
+  #toggleBtn.action-stop { background: var(--card); color: var(--ink); border-color: var(--border); }
+  #toggleBtn.action-stop:hover { background: var(--gray-bg); }
+
+  #toggleBtn:disabled {
+    background: var(--gray-bg);
+    color: var(--gray-text);
+    cursor: not-allowed;
+  }
+  #toggleBtn:disabled:active { transform: none; }
+
+  .action-error {
+    color: var(--red-text);
+    font-size: 0.8rem;
+    text-align: center;
+    margin: 0.5rem 0 0;
+  }
 
   .schedule-row { display: flex; gap: 0.6rem; align-items: center; }
 
@@ -213,9 +229,9 @@
     <hr class="divider">
 
     <div class="row">
-      <button id="startBtn">▶ Start Charging</button>
-      <button id="stopBtn">⏸ Stop Charging</button>
+      <button id="toggleBtn" class="action-start">▶ Start Charging</button>
     </div>
+    <p id="actionError" class="action-error" hidden></p>
 
     <div class="schedule-row">
       <input type="time" id="scheduleInput">
@@ -228,6 +244,37 @@
 <script>
   const API = "https://car-battery-func-cffueff0bjaphuaq.newzealandnorth-01.azurewebsites.net/api";
 
+  // ponytail: 6s covers one device tick (~1s) + one frontend poll (~2s)
+  // with margin - not a measured SLA, just generous enough not to false-fire.
+  const PENDING_TIMEOUT_MS = 6000;
+
+  const toggleBtn = document.getElementById("toggleBtn");
+  const actionError = document.getElementById("actionError");
+  let lastKnownCharging = false;
+  let pendingAction = null; // null | "start" | "stop"
+  let pendingTimer = null;
+  let wasAlertVisible = false;
+
+  function renderToggleButton(isCharging) {
+    if (pendingAction) return; // don't fight the pending state, refresh() owns it while waiting
+    toggleBtn.disabled = false;
+    if (isCharging) {
+      toggleBtn.textContent = "⏸ Stop Charging";
+      toggleBtn.className = "action-stop";
+    } else {
+      toggleBtn.textContent = "▶ Start Charging";
+      toggleBtn.className = "action-start";
+    }
+  }
+
+  function clearPending() {
+    pendingAction = null;
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      pendingTimer = null;
+    }
+  }
+
   async function refresh() {
     const res = await fetch(`${API}/battery`);
     const data = await res.json();
@@ -239,6 +286,19 @@
     fillEl.classList.toggle("mid", level >= 20 && level < 50);
     fillEl.classList.toggle("charging", !!data.isCharging);
     document.getElementById("level").innerHTML = `${level}<small>%</small>`;
+
+    lastKnownCharging = !!data.isCharging;
+
+    // Did the pending start/stop we're waiting on actually happen?
+    if (pendingAction === "start" && lastKnownCharging) {
+      clearPending();
+      actionError.hidden = true;
+    } else if (pendingAction === "stop" && !lastKnownCharging) {
+      clearPending();
+      actionError.hidden = true;
+    }
+
+    renderToggleButton(lastKnownCharging);
 
     const isOffline = data.alert === "unexpected_disconnect_while_charging";
     const statusEl = document.getElementById("status");
@@ -256,30 +316,49 @@
       : "No data yet";
 
     const banner = document.getElementById("alertBanner");
-    if (data.alert === "unexpected_disconnect_while_charging") {
+    const alertNowVisible = data.alert === "unexpected_disconnect_while_charging";
+    if (alertNowVisible) {
       const at = data.alertAt ? new Date(data.alertAt).toLocaleTimeString() : "";
       banner.innerHTML = `<span>⚠️</span><span>Car disconnected unexpectedly while charging${at ? ` at ${at}` : ""}.</span>`;
       banner.hidden = false;
     } else {
       banner.hidden = true;
+      if (wasAlertVisible) {
+        // Recovering from an unexpected disconnect: don't silently resume
+        // showing "Charging" just because isCharging happens to read true
+        // again - force the UI back to a known-safe idle state and make
+        // the owner press Start again, same as a real charger post-fault.
+        clearPending();
+        lastKnownCharging = false;
+        renderToggleButton(false);
+      }
     }
+    wasAlertVisible = alertNowVisible;
   }
 
-  document.getElementById("startBtn").onclick = async () => {
-    await fetch(`${API}/charging`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ charging: true })
-    });
-    refresh();
-  };
+  toggleBtn.onclick = async () => {
+    const startingUp = !lastKnownCharging; // button reflects current state, so this click means "do the opposite"
+    pendingAction = startingUp ? "start" : "stop";
+    actionError.hidden = true;
+    toggleBtn.disabled = true;
+    toggleBtn.textContent = startingUp ? "Starting…" : "Stopping…";
 
-  document.getElementById("stopBtn").onclick = async () => {
     await fetch(`${API}/charging`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ charging: false })
+      body: JSON.stringify({ charging: startingUp })
     });
+
+    pendingTimer = setTimeout(() => {
+      if (pendingAction !== (startingUp ? "start" : "stop")) return; // already confirmed by a refresh()
+      clearPending();
+      actionError.textContent = startingUp
+        ? "⚠️ Car didn't start charging - check it's connected."
+        : "⚠️ Car didn't stop charging - check it's connected.";
+      actionError.hidden = false;
+      renderToggleButton(lastKnownCharging);
+    }, PENDING_TIMEOUT_MS);
+
     refresh();
   };
 
@@ -295,7 +374,14 @@
   };
 
   refresh();
-  setInterval(refresh, 5000);
+  setInterval(refresh, 1000);
+
+  // Browsers throttle setInterval in background tabs - refresh immediately
+  // when the tab becomes visible again instead of waiting for the next
+  // (possibly delayed) tick.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refresh();
+  });
 </script>
 </body>
 </html>

@@ -1,0 +1,35 @@
+@startuml disconnect-alert
+
+title Unexpected-disconnect-while-charging alert
+
+participant "device-simulator" as Sim
+participant "IoT Hub" as Hub
+participant "Event Grid\nSystem Topic" as Topic
+participant "Event Subscription\n(filter: DeviceDisconnected)" as Sub
+participant "Functions:\nOnDeviceConnectionChanged" as Fn
+database "Device Twin" as Twin
+participant Frontend
+
+Sim -> Hub : reported.isCharging = true
+Sim -[#red]x Hub : connection dropped\n(process killed, no clean MQTT disconnect)
+
+note right of Hub
+  Hub relies on MQTT keepalive
+  timeout to notice - not instant,
+  can take minutes
+end note
+
+Hub -> Topic : publish DeviceDisconnected
+Topic -> Sub : match against subscribed\nevent types
+Sub -> Fn : deliver (endpoint = this\nAzure Function, EventGridTrigger)
+
+Fn -> Twin : GetTwinAsync\ncheck reported.isCharging
+Twin --> Fn : true
+
+Fn -> Twin : UpdateTwinAsync\nTags.alert = "disconnect_while_charging"\nTags.alertAt = now
+
+Frontend -> Fn : GET /api/battery (poll)
+Fn -> Twin : read Tags.alert
+Fn --> Frontend : alert set -> show red banner
+
+@enduml

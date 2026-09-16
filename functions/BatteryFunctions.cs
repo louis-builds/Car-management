@@ -18,14 +18,27 @@ public class BatteryFunctions
         var desired = twin.Properties.Desired;
         var tags = twin.Tags;
 
+        DateTime? lastUpdated = reported.Contains("lastUpdated") ? (DateTime)reported["lastUpdated"] : (DateTime?)null;
+        DateTime? alertAt = tags.Contains("alertAt") ? (DateTime?)tags["alertAt"] : null;
+
+        // The DeviceConnected Event Grid event that clears this tag can lag
+        // well behind the device actually reconnecting. Don't wait on it:
+        // once the device has reported anything newer than the alert, it's
+        // obviously back, so stop showing the alert even if the tag on the
+        // Twin hasn't been cleared yet. (The Event Grid path still clears
+        // the tag itself eventually - this just stops the UI from lying in
+        // the meantime.)
+        bool alertStillCurrent = tags.Contains("alert")
+            && (lastUpdated == null || alertAt == null || lastUpdated <= alertAt);
+
         var result = new
         {
             batteryLevel = reported.Contains("batteryLevel") ? (double)reported["batteryLevel"] : (double?)null,
             isCharging = reported.Contains("isCharging") ? (bool)reported["isCharging"] : (bool?)null,
-            lastUpdated = reported.Contains("lastUpdated") ? (DateTime)reported["lastUpdated"] : (DateTime?)null,
+            lastUpdated,
             schedule = desired.Contains("schedule") ? (string)desired["schedule"] : null,
-            alert = tags.Contains("alert") ? (string)tags["alert"] : null,
-            alertAt = tags.Contains("alertAt") ? (DateTime?)tags["alertAt"] : null
+            alert = alertStillCurrent ? (string)tags["alert"] : null,
+            alertAt = alertStillCurrent ? alertAt : null
         };
 
         var response = req.CreateResponse(HttpStatusCode.OK);

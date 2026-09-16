@@ -1,1 +1,8 @@
-Claude.md
+CLAUDE.md
+*.md
+
+bin/
+obj/
+*.user
+.env
+local.settings.json

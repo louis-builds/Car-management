@@ -1,0 +1,37 @@
+@startuml architecture
+
+title Car Battery IoT Demo - Architecture
+
+skinparam componentStyle rectangle
+
+actor "Car owner" as Owner
+
+node "device-simulator" as Sim
+
+package "Azure" {
+
+  component "IoT Hub" as Hub {
+    database "Device Twin\ndesired / reported / tags" as Twin
+  }
+
+  package "Functions " {
+    component "GetBattery\nSetCharging\nSetSchedule\n[HttpTrigger]" as HttpFns
+  }
+
+  component "Storage Account" as Storage {
+    component "$web\n(static website)" as Web
+  }
+}
+
+component "frontend" as Frontend
+
+Sim -down-> Hub : MQTT\n(reported properties,\nsubscribe to desired)
+Hub -down-> Twin
+
+HttpFns <-down-> Twin : RegistryManager\n(read/write on each HTTP call)
+
+Web -up-> Frontend
+Owner -up-> Frontend
+Frontend -left-> HttpFns : fetch\nGET/POST /api/*
+
+@enduml
