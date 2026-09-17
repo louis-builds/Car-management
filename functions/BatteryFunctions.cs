@@ -9,11 +9,32 @@ namespace CarBattery.Functions;
 
 public class BatteryFunctions
 {
+    // ponytail: hardcoded to the two cars we actually have registered.
+    // If this grows past a handful, replace with a real device query
+    // (RegistryManager.CreateQuery) or a stored list - not worth the code
+    // for two.
+    private static readonly string[] KnownDeviceIds = ["simulated-car-01", "simulated-car-02"];
+
+    [Function("GetCars")]
+    public async Task<HttpResponseData> GetCars(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "cars")] HttpRequestData req)
+    {
+        var response = req.CreateResponse(HttpStatusCode.OK);
+        await response.WriteAsJsonAsync(KnownDeviceIds);
+        return response;
+    }
+
     [Function("GetBattery")]
     public async Task<HttpResponseData> GetBattery(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "battery")] HttpRequestData req)
     {
-        Twin twin = await WithThrottleRetryAsync(() => RegistryManager.GetTwinAsync(DeviceId));
+        string? deviceId = GetDeviceId(req);
+        if (deviceId is null)
+        {
+            return req.CreateResponse(HttpStatusCode.BadRequest);
+        }
+
+        Twin twin = await WithThrottleRetryAsync(() => RegistryManager.GetTwinAsync(deviceId));
         var reported = twin.Properties.Reported;
         var desired = twin.Properties.Desired;
         var tags = twin.Tags;
@@ -50,15 +71,16 @@ public class BatteryFunctions
     public async Task<HttpResponseData> SetCharging(
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "charging")] HttpRequestData req)
     {
+        string? deviceId = GetDeviceId(req);
         var body = await req.ReadFromJsonAsync<ChargingRequest>();
-        if (body is null)
+        if (deviceId is null || body is null)
         {
             return req.CreateResponse(HttpStatusCode.BadRequest);
         }
 
         var patch = new Twin();
         patch.Properties.Desired["targetCharging"] = body.Charging;
-        await WithThrottleRetryAsync(() => RegistryManager.UpdateTwinAsync(DeviceId, patch, "*"));
+        await WithThrottleRetryAsync(() => RegistryManager.UpdateTwinAsync(deviceId, patch, "*"));
 
         return req.CreateResponse(HttpStatusCode.NoContent);
     }
@@ -67,17 +89,24 @@ public class BatteryFunctions
     public async Task<HttpResponseData> SetSchedule(
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "schedule")] HttpRequestData req)
     {
+        string? deviceId = GetDeviceId(req);
         var body = await req.ReadFromJsonAsync<ScheduleRequest>();
-        if (body is null || !TimeSpan.TryParse(body.Time, out _))
+        if (deviceId is null || body is null || !TimeSpan.TryParse(body.Time, out _))
         {
             return req.CreateResponse(HttpStatusCode.BadRequest);
         }
 
         var patch = new Twin();
         patch.Properties.Desired["schedule"] = body.Time;
-        await WithThrottleRetryAsync(() => RegistryManager.UpdateTwinAsync(DeviceId, patch, "*"));
+        await WithThrottleRetryAsync(() => RegistryManager.UpdateTwinAsync(deviceId, patch, "*"));
 
         return req.CreateResponse(HttpStatusCode.NoContent);
+    }
+
+    private static string? GetDeviceId(HttpRequestData req)
+    {
+        string? deviceId = System.Web.HttpUtility.ParseQueryString(req.Url.Query).Get("deviceId");
+        return string.IsNullOrWhiteSpace(deviceId) ? null : deviceId;
     }
 
     private record ChargingRequest(bool Charging);

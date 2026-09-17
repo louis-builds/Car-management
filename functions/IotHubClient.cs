@@ -10,8 +10,4 @@ internal static class IotHubClient
     public static readonly RegistryManager RegistryManager = RegistryManager.CreateFromConnectionString(
         Environment.GetEnvironmentVariable("IOTHUB_SERVICE_CONNECTION_STRING")
         ?? throw new InvalidOperationException("IOTHUB_SERVICE_CONNECTION_STRING is not set."));
-
-    public static readonly string DeviceId =
-        Environment.GetEnvironmentVariable("IOTHUB_DEVICE_ID")
-        ?? throw new InvalidOperationException("IOTHUB_DEVICE_ID is not set.");
 }

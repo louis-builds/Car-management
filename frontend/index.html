@@ -57,6 +57,18 @@
 
   h1 .emoji { font-size: 1.3rem; }
 
+  .car-select {
+    width: 100%;
+    font-size: 0.9rem;
+    font-weight: 600;
+    padding: 0.5rem 0.6rem;
+    margin-bottom: 1rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--page);
+    color: var(--ink);
+  }
+
   .alert[hidden] { display: none; }
 
   .alert {
@@ -218,6 +230,8 @@
   <div class="card">
     <h1><span class="emoji">🔋</span>My Car Battery</h1>
 
+    <select id="carSelect" class="car-select"></select>
+
     <div id="alertBanner" class="alert" hidden></div>
 
     <div class="level-row">
@@ -250,10 +264,28 @@
 
   const toggleBtn = document.getElementById("toggleBtn");
   const actionError = document.getElementById("actionError");
+  const carSelect = document.getElementById("carSelect");
+  let selectedDeviceId = null;
   let lastKnownCharging = false;
   let pendingAction = null; // null | "start" | "stop"
   let pendingTimer = null;
   let wasAlertVisible = false;
+
+  async function loadCars() {
+    const res = await fetch(`${API}/cars`);
+    const deviceIds = await res.json();
+    carSelect.innerHTML = deviceIds.map(id => `<option value="${id}">${id}</option>`).join("");
+    selectedDeviceId = deviceIds[0] ?? null;
+  }
+
+  carSelect.onchange = () => {
+    selectedDeviceId = carSelect.value;
+    // Switching cars: don't carry over the previous car's pending/alert UI state.
+    clearPending();
+    actionError.hidden = true;
+    wasAlertVisible = false;
+    refresh();
+  };
 
   function renderToggleButton(isCharging) {
     if (pendingAction) return; // don't fight the pending state, refresh() owns it while waiting
@@ -276,7 +308,8 @@
   }
 
   async function refresh() {
-    const res = await fetch(`${API}/battery`);
+    if (!selectedDeviceId) return;
+    const res = await fetch(`${API}/battery?deviceId=${selectedDeviceId}`);
     const data = await res.json();
 
     const level = data.batteryLevel ?? 0;
@@ -337,13 +370,14 @@
   }
 
   toggleBtn.onclick = async () => {
+    if (!selectedDeviceId) return; // cars list hasn't loaded yet
     const startingUp = !lastKnownCharging; // button reflects current state, so this click means "do the opposite"
     pendingAction = startingUp ? "start" : "stop";
     actionError.hidden = true;
     toggleBtn.disabled = true;
     toggleBtn.textContent = startingUp ? "Starting…" : "Stopping…";
 
-    await fetch(`${API}/charging`, {
+    await fetch(`${API}/charging?deviceId=${selectedDeviceId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ charging: startingUp })
@@ -364,8 +398,8 @@
 
   document.getElementById("scheduleBtn").onclick = async () => {
     const time = document.getElementById("scheduleInput").value;
-    if (!time) return;
-    await fetch(`${API}/schedule`, {
+    if (!time || !selectedDeviceId) return;
+    await fetch(`${API}/schedule?deviceId=${selectedDeviceId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ time })
@@ -373,7 +407,7 @@
     refresh();
   };
 
-  refresh();
+  loadCars().then(refresh);
   setInterval(refresh, 1000);
 
   // Browsers throttle setInterval in background tabs - refresh immediately
