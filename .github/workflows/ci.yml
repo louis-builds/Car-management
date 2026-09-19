@@ -7,6 +7,19 @@ on:
     branches: [ "main" ]
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      functions: ${{ steps.filter.outputs.functions }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          functions:
+            - 'functions/**'
+
   build:
 
     runs-on: ubuntu-latest
@@ -25,9 +38,9 @@ jobs:
       run: dotnet test --no-build --verbosity normal
 
   deploy-functions:
-    needs: build
+    needs: [build, changes]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.changes.outputs.functions == 'true'
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-dotnet@v4
