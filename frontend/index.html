@@ -218,6 +218,12 @@
   }
   #scheduleBtn:hover { filter: brightness(1.15); }
 
+  .current-schedule {
+    margin: 0.4rem 0 0;
+    font-size: 0.75rem;
+    color: var(--gray-text);
+  }
+
   .updated {
     margin-top: 1.1rem;
     font-size: 0.75rem;
@@ -251,6 +257,7 @@
       <input type="time" id="scheduleInput">
       <button id="scheduleBtn">Set Schedule</button>
     </div>
+    <p class="current-schedule" id="currentSchedule"></p>
 
     <p class="updated" id="updated"></p>
   </div>
@@ -265,11 +272,13 @@
   const toggleBtn = document.getElementById("toggleBtn");
   const actionError = document.getElementById("actionError");
   const carSelect = document.getElementById("carSelect");
+  const scheduleInput = document.getElementById("scheduleInput");
   let selectedDeviceId = null;
   let lastKnownCharging = false;
   let pendingAction = null; // null | "start" | "stop"
   let pendingTimer = null;
   let wasAlertVisible = false;
+  let scheduleInputPrefilled = false; // only pre-fill the draft input once - refresh() must never touch it after that, or it fights the user's in-progress edit
 
   async function loadCars() {
     const res = await fetch(`${API}/cars`);
@@ -284,6 +293,7 @@
     clearPending();
     actionError.hidden = true;
     wasAlertVisible = false;
+    scheduleInputPrefilled = false; // new car - allow one fresh pre-fill of its own schedule
     refresh();
   };
 
@@ -343,7 +353,17 @@
       statusEl.className = "badge " + (data.isCharging ? "charging" : "idle");
     }
 
-    document.getElementById("scheduleInput").value = data.schedule ?? "";
+    // Display-only, updated every poll. scheduleInput itself is the user's
+    // draft and is never touched here - keeping the two separate is what
+    // avoids the poll fighting an in-progress edit (see git history for the
+    // focus-guard version that tried to patch around sharing one field).
+    document.getElementById("currentSchedule").textContent = data.schedule
+      ? `Current schedule: ${data.schedule}`
+      : "No schedule set";
+    if (!scheduleInputPrefilled) {
+      scheduleInput.value = data.schedule ?? "";
+      scheduleInputPrefilled = true;
+    }
     document.getElementById("updated").textContent = data.lastUpdated
       ? `Last updated ${new Date(data.lastUpdated).toLocaleTimeString()}`
       : "No data yet";
@@ -397,7 +417,7 @@
   };
 
   document.getElementById("scheduleBtn").onclick = async () => {
-    const time = document.getElementById("scheduleInput").value;
+    const time = scheduleInput.value;
     if (!time || !selectedDeviceId) return;
     await fetch(`${API}/schedule?deviceId=${selectedDeviceId}`, {
       method: "POST",
