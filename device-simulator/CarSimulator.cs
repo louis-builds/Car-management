@@ -38,9 +38,21 @@ namespace CarBattery.DeviceSimulator
         private static State _lastReportedState = State.Idle;
         private static double _lastReportedBatteryLevel = double.NaN;
 
+        // Optional real-hardware output: sysfs path to a board LED's brightness
+        // file (e.g. /sys/class/leds/ACT/brightness on a Raspberry Pi). Unset on
+        // dev machines - SetLed() is then a no-op. Read after LoadDotEnv() so a
+        // .env value is picked up, not at static-init time.
+        private static string? _ledPath;
+
         private static async Task Main(string[] args)
         {
             LoadDotEnv();
+
+            _ledPath = Environment.GetEnvironmentVariable("LED_PATH");
+            if (_ledPath is not null)
+            {
+                Console.WriteLine($"LED control enabled at {_ledPath}");
+            }
 
             string? connectionString = Environment.GetEnvironmentVariable("IOTHUB_DEVICE_CONNECTION_STRING");
             if (string.IsNullOrWhiteSpace(connectionString))
@@ -187,6 +199,11 @@ namespace CarBattery.DeviceSimulator
             bool heartbeatDue = DateTime.UtcNow - _lastReportedAt >= HeartbeatInterval;
             if (!force && !stateChanged && !batteryChanged && !heartbeatDue) return;
 
+            if (force || stateChanged)
+            {
+                SetLed(state == State.Charging);
+            }
+
             var reported = new TwinCollection
             {
                 ["batteryLevel"] = roundedBattery,
@@ -199,6 +216,24 @@ namespace CarBattery.DeviceSimulator
             _lastReportedBatteryLevel = roundedBattery;
             _lastReportedAt = DateTime.UtcNow;
             Console.WriteLine($"[reported] battery={battery:F1}% state={state}");
+        }
+
+        // --- Optional real-hardware output: a board LED standing in for a charger relay ---
+
+        private static void SetLed(bool on)
+        {
+            if (_ledPath is null) return; // no hardware wired up (e.g. dev machine) - no-op
+
+            try
+            {
+                File.WriteAllText(_ledPath, on ? "1" : "0");
+            }
+            catch (Exception ex)
+            {
+                // ponytail: best-effort - a missing/permission-denied LED path
+                // shouldn't take down the whole simulator over a cosmetic output.
+                Console.WriteLine($"WARN: couldn't set LED at {_ledPath}: {ex.Message}");
+            }
         }
     }
 }

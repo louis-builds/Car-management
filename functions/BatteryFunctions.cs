@@ -13,7 +13,7 @@ public class BatteryFunctions
     // If this grows past a handful, replace with a real device query
     // (RegistryManager.CreateQuery) or a stored list - not worth the code
     // for two.
-    private static readonly string[] KnownDeviceIds = ["simulated-car-01", "simulated-car-02","real-car-01"];
+    private static readonly string[] KnownDeviceIds = ["real-car-01", "simulated-car-01", "simulated-car-02"];
 
     [Function("GetCars")]
     public async Task<HttpResponseData> GetCars(
