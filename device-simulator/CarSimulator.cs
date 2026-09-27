@@ -79,11 +79,13 @@ namespace CarBattery.DeviceSimulator
             // Pick up whatever desired properties are already sitting in the twin
             // (e.g. someone set a schedule before this device ever connected),
             // then keep listening for future changes.
-            Twin twin = await _deviceClient.GetTwinAsync();
-            ApplyDesiredProperties(twin.Properties.Desired);
             await _deviceClient.SetDesiredPropertyUpdateCallbackAsync(
                 (desired, _) => { ApplyDesiredProperties(desired); return Task.CompletedTask; }, null);
 
+            Twin twin = await _deviceClient.GetTwinAsync();
+            Console.WriteLine("\tInitial twin value received:");
+            Console.WriteLine($"\t{twin.ToJson()}");
+            ApplyDesiredProperties(twin.Properties.Desired);
             await ReportTwinStateAsync(force: true);
 
             Console.WriteLine("Car battery simulator started. Press Ctrl+C to stop.");
