@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using DotNetEnv;
 using Microsoft.Azure.Devices.Client;
 using Microsoft.Azure.Devices.Shared;
+using Newtonsoft.Json.Linq;
 
 namespace CarBattery.DeviceSimulator
 {
@@ -23,8 +24,9 @@ namespace CarBattery.DeviceSimulator
         // --- Simulated car state ---------------------------------------------------
         private static State _state = State.Idle;
         private static double _batteryLevel = 55.0; // start at 55%
-        private static string? _schedule;            // "HH:mm", from desired.schedule
-        private static DateOnly? _scheduleFiredOn;    // guards against re-firing all day
+        private static ChargeSchedule? _schedule;     // from desired.schedule
+        private static DateOnly? _startFiredOn;       // guards the start event against re-firing all day
+        private static DateOnly? _endFiredOn;         // guards the stop event against re-firing all day
         private static readonly object _stateLock = new();
 
         // How fast the simulation moves / how chatty it is. Tune for a faster demo.
@@ -118,11 +120,43 @@ namespace CarBattery.DeviceSimulator
 
                 if (desired.Contains("schedule"))
                 {
-                    _schedule = (string)desired["schedule"];
-                    _scheduleFiredOn = null; // new schedule value, allow it to fire today
+                    _schedule = ParseScheduleFromTwin(desired);
+                    _startFiredOn = null; // new schedule value, allow both events to fire today
+                    _endFiredOn = null;
                     Console.WriteLine($">>> desired.schedule={_schedule}");
                 }
             }
+        }
+
+        // The Twin stores desired.schedule as either the legacy bare "HH:mm"
+        // string, or the new object shape { start, end, days, date } written
+        // by functions/BatteryFunctions.cs. TwinCollection's dynamic indexer
+        // wraps a Newtonsoft JValue rather than a real System.String, so a
+        // `raw is string` pattern check on it silently fails (it's not the
+        // implicit conversion a cast would do) and falls through to whatever
+        // handles the object case - which then blows up parsing a string as
+        // an object. Side-stepping the dynamic indexer entirely and reading
+        // the Twin's actual JSON avoids that whole class of bug.
+        private static ChargeSchedule? ParseScheduleFromTwin(TwinCollection desired)
+        {
+            JObject wholeDesired = JObject.Parse(desired.ToJson());
+            JToken? scheduleToken = wholeDesired["schedule"];
+            if (scheduleToken is null || scheduleToken.Type == JTokenType.Null)
+            {
+                return null; // desired.schedule was cleared (set to null)
+            }
+
+            if (scheduleToken.Type == JTokenType.String)
+            {
+                return BatterySimulation.ParseSchedule(
+                    start: scheduleToken.Value<string>(), end: null, days: null, date: null);
+            }
+
+            return BatterySimulation.ParseSchedule(
+                start: scheduleToken["start"]?.Value<string>(),
+                end: scheduleToken["end"]?.Value<string>(),
+                days: scheduleToken["days"]?.Value<string>(),
+                date: scheduleToken["date"]?.Value<string>());
         }
 
         // --- Main loop: sample -> apply physics -> check schedule -> report ---------
@@ -167,14 +201,25 @@ namespace CarBattery.DeviceSimulator
         {
             lock (_stateLock)
             {
-                if (_state == State.Charging) return; // already charging, nothing to check
+                var now = DateTime.Now; // schedule.Start/End are in the device's own local time
 
-                var now = DateTime.Now;
-                if (BatterySimulation.ShouldFireSchedule(_schedule, now, _scheduleFiredOn, TickInterval))
+                if (_state == State.Charging)
                 {
-                    _state = State.Charging;
-                    _scheduleFiredOn = DateOnly.FromDateTime(now);
-                    Console.WriteLine($">>> Schedule {_schedule} fired - charging started.");
+                    if (BatterySimulation.ShouldStopCharging(_schedule, now, _endFiredOn, TickInterval))
+                    {
+                        _state = State.Idle;
+                        _endFiredOn = DateOnly.FromDateTime(now);
+                        Console.WriteLine(">>> Schedule end fired - charging stopped.");
+                    }
+                }
+                else
+                {
+                    if (BatterySimulation.ShouldStartCharging(_schedule, now, _startFiredOn, TickInterval))
+                    {
+                        _state = State.Charging;
+                        _startFiredOn = DateOnly.FromDateTime(now);
+                        Console.WriteLine(">>> Schedule start fired - charging started.");
+                    }
                 }
             }
         }
