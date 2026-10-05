@@ -27,6 +27,7 @@ namespace CarBattery.DeviceSimulator
         private static ChargeSchedule? _schedule;     // from desired.schedule
         private static DateOnly? _startFiredOn;       // guards the start event against re-firing all day
         private static DateOnly? _endFiredOn;         // guards the stop event against re-firing all day
+        private static DateTime? _lastRejectedCommandAt; // set when a targetCharging command is rejected as stale
         private static readonly object _stateLock = new();
 
         // How fast the simulation moves / how chatty it is. Tune for a faster demo.
@@ -35,10 +36,18 @@ namespace CarBattery.DeviceSimulator
         private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(3);
         private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(30);
 
+        // How old a targetCharging command can be before it's rejected as
+        // stale rather than executed - see BatterySimulation.IsCommandFresh.
+        // 5 minutes comfortably covers normal reconnect/Twin-sync delay
+        // without letting an hours-old "Start" fire the moment the car
+        // finally comes back online.
+        private static readonly TimeSpan CommandMaxAge = TimeSpan.FromMinutes(5);
+
         private static DeviceClient? _deviceClient;
         private static DateTime _lastReportedAt = DateTime.MinValue;
         private static State _lastReportedState = State.Idle;
         private static double _lastReportedBatteryLevel = double.NaN;
+        private static DateTime? _lastReportedRejectedCommandAt;
 
         // Optional real-hardware output: sysfs path to a board LED's brightness
         // file (e.g. /sys/class/leds/ACT/brightness on a Raspberry Pi). Unset on
@@ -116,8 +125,29 @@ namespace CarBattery.DeviceSimulator
                 if (desired.Contains("targetCharging"))
                 {
                     bool target = desired["targetCharging"];
-                    _state = target ? State.Charging : State.Idle;
-                    Console.WriteLine($">>> desired.targetCharging={target} -> state={_state}");
+
+                    // targetChargingIssuedAt is written alongside targetCharging
+                    // by SetCharging (functions/BatteryFunctions.cs). Its absence
+                    // (an older Twin, or the field never having been set) means
+                    // "no timestamp to judge freshness by" - apply unconditionally
+                    // rather than retroactively rejecting commands that predate
+                    // this feature.
+                    DateTime? issuedAt = desired.Contains("targetChargingIssuedAt")
+                        ? (DateTime)desired["targetChargingIssuedAt"]
+                        : (DateTime?)null;
+
+                    if (issuedAt is DateTime issued
+                        && !BatterySimulation.IsCommandFresh(issued, DateTime.UtcNow, CommandMaxAge))
+                    {
+                        _lastRejectedCommandAt = DateTime.UtcNow;
+                        Console.WriteLine(
+                            $">>> Rejected stale desired.targetCharging={target} (issued {issued:O}, now {DateTime.UtcNow:O})");
+                    }
+                    else
+                    {
+                        _state = target ? State.Charging : State.Idle;
+                        Console.WriteLine($">>> desired.targetCharging={target} -> state={_state}");
+                    }
                 }
 
                 if (desired.Contains("schedule"))
@@ -232,19 +262,21 @@ namespace CarBattery.DeviceSimulator
         {
             State state;
             double battery;
+            DateTime? rejectedCommandAt;
             lock (_stateLock)
             {
                 state = _state;
                 battery = _batteryLevel;
+                rejectedCommandAt = _lastRejectedCommandAt;
             }
 
             double roundedBattery = Math.Round(battery, 1);
 
-            
             bool stateChanged = state != _lastReportedState;
             bool batteryChanged = roundedBattery != _lastReportedBatteryLevel;
+            bool rejectedCommandChanged = rejectedCommandAt != _lastReportedRejectedCommandAt;
             bool heartbeatDue = DateTime.UtcNow - _lastReportedAt >= HeartbeatInterval;
-            if (!force && !stateChanged && !batteryChanged && !heartbeatDue) return;
+            if (!force && !stateChanged && !batteryChanged && !rejectedCommandChanged && !heartbeatDue) return;
 
             if (force || stateChanged)
             {
@@ -257,10 +289,31 @@ namespace CarBattery.DeviceSimulator
                 ["isCharging"] = state == State.Charging,
                 ["lastUpdated"] = DateTime.UtcNow
             };
+            if (rejectedCommandAt is DateTime rejectedAt)
+            {
+                reported["lastCommandRejectedAt"] = rejectedAt;
+            }
 
-            await _deviceClient!.UpdateReportedPropertiesAsync(reported);
+            try
+            {
+                await _deviceClient!.UpdateReportedPropertiesAsync(reported);
+            }
+            catch (Exception ex)
+            {
+                // ponytail: offline-first means a dropped connection here must
+                // not take down the whole tick loop - UpdateBattery/CheckSchedule
+                // keep deciding charging state from the device's own clock every
+                // tick regardless of whether this cloud call succeeds. Deliberately
+                // skip updating _lastReported* on failure, so the exact same
+                // comparison (stateChanged/batteryChanged) retries next tick
+                // instead of silently dropping the pending change.
+                Console.WriteLine($"WARN: couldn't report Twin state, will retry next tick: {ex.Message}");
+                return;
+            }
+
             _lastReportedState = state;
             _lastReportedBatteryLevel = roundedBattery;
+            _lastReportedRejectedCommandAt = rejectedCommandAt;
             _lastReportedAt = DateTime.UtcNow;
             Console.WriteLine($"[reported] battery={battery:F1}% state={state}");
         }

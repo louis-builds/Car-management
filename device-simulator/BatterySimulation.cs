@@ -99,4 +99,18 @@ public static class BatterySimulation
         int dayOfWeek = (int)now.DayOfWeek; // 0=Sunday..6=Saturday
         return schedule.Days.Contains((char)('0' + dayOfWeek));
     }
+
+    // Should an immediate command (currently just targetCharging) be
+    // trusted, or is it stale and should be rejected? `issuedAt` is the
+    // timestamp the Function wrote alongside the command when it was sent.
+    //
+    // Checked in both directions - too far in the past (the classic "device
+    // was offline for hours, command is no longer what the owner wants"
+    // case) AND too far in the future - because a device clock that's
+    // running behind (e.g. a Raspberry Pi with no RTC that hasn't finished
+    // NTP sync yet at boot) makes every real command look like it was
+    // issued "in the future" relative to the device's own clock, which is
+    // just as untrustworthy as a genuinely old command.
+    public static bool IsCommandFresh(DateTime issuedAt, DateTime now, TimeSpan maxAge) =>
+        Math.Abs((now - issuedAt).TotalSeconds) <= maxAge.TotalSeconds;
 }

@@ -189,4 +189,63 @@ public class BatterySimulationTests
 
         Assert.True(result);
     }
+
+    // --- IsCommandFresh ----------------------------------------------------
+
+    [Fact]
+    public void IsCommandFresh_IssuedJustNow_ReturnsTrue()
+    {
+        var now = new DateTime(2026, 1, 1, 12, 0, 0);
+
+        bool result = BatterySimulation.IsCommandFresh(issuedAt: now, now: now, maxAge: TimeSpan.FromMinutes(5));
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsCommandFresh_WithinMaxAge_ReturnsTrue()
+    {
+        var issuedAt = new DateTime(2026, 1, 1, 12, 0, 0);
+        var now = issuedAt.AddMinutes(4);
+
+        bool result = BatterySimulation.IsCommandFresh(issuedAt, now, maxAge: TimeSpan.FromMinutes(5));
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsCommandFresh_OlderThanMaxAge_ReturnsFalse()
+    {
+        var issuedAt = new DateTime(2026, 1, 1, 12, 0, 0);
+        var now = issuedAt.AddHours(3); // offline for hours, exactly the scenario this guards against
+
+        bool result = BatterySimulation.IsCommandFresh(issuedAt, now, maxAge: TimeSpan.FromMinutes(5));
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void IsCommandFresh_IssuedTimeInTheFuture_ReturnsFalse()
+    {
+        // Simulates a device clock running behind (e.g. a Pi with no RTC
+        // that hasn't finished NTP sync) - a perfectly fresh command looks
+        // like it was issued "in the future" from the device's point of view.
+        var now = new DateTime(2026, 1, 1, 12, 0, 0);
+        var issuedAt = now.AddHours(3);
+
+        bool result = BatterySimulation.IsCommandFresh(issuedAt, now, maxAge: TimeSpan.FromMinutes(5));
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void IsCommandFresh_ExactlyAtMaxAge_ReturnsTrue()
+    {
+        var issuedAt = new DateTime(2026, 1, 1, 12, 0, 0);
+        var now = issuedAt.AddMinutes(5);
+
+        bool result = BatterySimulation.IsCommandFresh(issuedAt, now, maxAge: TimeSpan.FromMinutes(5));
+
+        Assert.True(result);
+    }
 }

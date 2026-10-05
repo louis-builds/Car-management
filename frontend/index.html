@@ -400,8 +400,8 @@
   </dialog>
 
 <script>
-  const API = "https://car-battery-func-cffueff0bjaphuaq.newzealandnorth-01.azurewebsites.net/api";
-  // const API = "http://localhost:7071/api";
+  // const API = "https://car-battery-func-cffueff0bjaphuaq.newzealandnorth-01.azurewebsites.net/api";
+  const API = "http://localhost:7071/api";
 
   // ponytail: 6s covers one device tick (~1s) + one frontend poll (~2s)
   // with margin - not a measured SLA, just generous enough not to false-fire.
@@ -429,6 +429,7 @@
   let wasAlertVisible = false;
   let lastSchedule = null; // { start, end, days, date } | null - the dialog only reads this when it opens, never from a live poll while it's open
   let selectedDays = new Set(); // of single-char strings "0".."6"
+  let lastSeenRejectedCommandAt = null; // dedupes repeated polls of the same rejection so the warning doesn't re-flash every second
 
   async function loadCars() {
     const res = await fetch(`${API}/cars`);
@@ -443,6 +444,7 @@
     clearPending();
     actionError.hidden = true;
     wasAlertVisible = false;
+    lastSeenRejectedCommandAt = null; // new car - a rejection notice from the previous one doesn't apply here
     if (scheduleDialog.open) scheduleDialog.close(); // don't leave one car's draft open against another car
     refresh();
   };
@@ -492,6 +494,16 @@
     }
 
     renderToggleButton(lastKnownCharging);
+
+    // The device rejected a Start/Stop command as stale (issued too long
+    // before it reconnected) - see BatterySimulation.IsCommandFresh on the
+    // device side. Only show this once per distinct rejection timestamp, so
+    // it doesn't re-flash on every 1s poll while it's the current value.
+    if (data.lastCommandRejectedAt && data.lastCommandRejectedAt !== lastSeenRejectedCommandAt) {
+      lastSeenRejectedCommandAt = data.lastCommandRejectedAt;
+      actionError.textContent = "⚠️ A charging command expired before the car reconnected - please try again.";
+      actionError.hidden = false;
+    }
 
     const isOffline = data.alert === "unexpected_disconnect_while_charging";
     const statusEl = document.getElementById("status");

@@ -42,6 +42,9 @@ public class BatteryFunctions
 
         DateTime? lastUpdated = reported.Contains("lastUpdated") ? (DateTime)reported["lastUpdated"] : (DateTime?)null;
         DateTime? alertAt = tags.Contains("alertAt") ? (DateTime?)tags["alertAt"] : null;
+        DateTime? lastCommandRejectedAt = reported.Contains("lastCommandRejectedAt")
+            ? (DateTime)reported["lastCommandRejectedAt"]
+            : null;
 
         // The DeviceConnected Event Grid event that clears this tag can lag
         // well behind the device actually reconnecting. Don't wait on it:
@@ -60,7 +63,8 @@ public class BatteryFunctions
             lastUpdated,
             schedule = ReadSchedule(desired),
             alert = alertStillCurrent ? (string)tags["alert"] : null,
-            alertAt = alertStillCurrent ? alertAt : null
+            alertAt = alertStillCurrent ? alertAt : null,
+            lastCommandRejectedAt
         };
 
         var response = req.CreateResponse(HttpStatusCode.OK);
@@ -81,6 +85,10 @@ public class BatteryFunctions
 
         var patch = new Twin();
         patch.Properties.Desired["targetCharging"] = body.Charging;
+        // The device compares this against its own clock to reject a
+        // command that's gone stale by the time it actually reconnects
+        // (see BatterySimulation.IsCommandFresh on the device side).
+        patch.Properties.Desired["targetChargingIssuedAt"] = DateTime.UtcNow;
         await WithThrottleRetryAsync(() => RegistryManager.UpdateTwinAsync(deviceId, patch, "*"));
 
         return req.CreateResponse(HttpStatusCode.NoContent);
